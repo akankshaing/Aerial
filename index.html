@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Aerial — Hand Gesture Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05060b;
+    --panel:rgba(255,255,255,0.055);
+    --panel-border:rgba(255,255,255,0.09);
+    --text:#e9ecf7;
+    --text-dim:#868ba3;
+    --cyan:#22d3ee;
+    --violet:#a78bfa;
+    --magenta:#f472b6;
+    --amber:#fbbf24;
+    --mint:#34d399;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    width:100%; height:100%; overflow:hidden;
+    background:var(--bg);
+    font-family:'Inter',sans-serif;
+    color:var(--text);
+  }
+  #stage{
+    position:fixed; inset:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  canvas{position:absolute; inset:0; width:100%; height:100%;}
+  #feedCanvas{filter:saturate(0.85) brightness(0.72) contrast(1.05);}
+  #inkCanvas{mix-blend-mode:screen;}
+  #hudCanvas{pointer-events:none;}
+
+  #vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:
+      radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 100%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px);
+  }
+  #grain{
+    position:fixed; inset:0; pointer-events:none; z-index:6; opacity:0.03;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- HUD panel, top-left ---------- */
+  #hud{
+    position:fixed; top:22px; left:22px; z-index:20;
+    display:flex; align-items:center; gap:12px;
+    background:var(--panel); border:1px solid var(--panel-border);
+    backdrop-filter:blur(18px) saturate(140%);
+    -webkit-backdrop-filter:blur(18px) saturate(140%);
+    border-radius:14px; padding:12px 18px 12px 14px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.35);
+  }
+  #statusDot{
+    width:9px; height:9px; border-radius:50%;
+    background:#565a70; box-shadow:0 0 0 rgba(0,0,0,0);
+    transition:all .3s ease;
+  }
+  #statusDot.live{background:var(--mint); box-shadow:0 0 12px 2px var(--mint);}
+  #gestureLabel{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px;
+    letter-spacing:0.2px;
+  }
+  #gestureSub{
+    font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:1px; margin-top:1px;
+  }
+  #gestureIcon{font-size:22px; line-height:1;}
+  #helpBtn{
+    margin-left:6px; width:26px; height:26px; border-radius:50%;
+    border:1px solid var(--panel-border); background:rgba(255,255,255,0.04);
+    color:var(--text-dim); font-family:'JetBrains Mono',monospace; font-size:12px;
+    cursor:pointer; transition:all .2s ease;
+  }
+  #helpBtn:hover{color:var(--text); border-color:var(--cyan); box-shadow:0 0 10px rgba(34,211,238,0.25);}
+
+  /* ---------- title mark, top-right ---------- */
+  #brandmark{
+    position:fixed; top:22px; right:22px; z-index:20;
+    text-align:right; font-family:'Space Grotesk',sans-serif;
+    pointer-events:none;
+  }
+  #brandmark .name{font-size:14px; font-weight:600; letter-spacing:2px;}
+  #brandmark .tag{font-family:'JetBrains Mono',monospace; font-size:9.5px; color:var(--text-dim); letter-spacing:1.5px; margin-top:2px;}
+
+  /* ---------- bottom dock ---------- */
+  #dock{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    z-index:20; display:flex; align-items:center; gap:16px;
+    background:var(--panel); border:1px solid var(--panel-border);
+    backdrop-filter:blur(18px) saturate(140%);
+    -webkit-backdrop-filter:blur(18px) saturate(140%);
+    border-radius:18px; padding:12px 18px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.4);
+  }
+  #dock .divider{width:1px; height:26px; background:var(--panel-border);}
+  #swatches{display:flex; gap:8px;}
+  .swatch{
+    width:22px; height:22px; border-radius:50%; cursor:pointer;
+    border:2px solid rgba(255,255,255,0.15); transition:all .2s ease;
+  }
+  .swatch.active{border-color:#fff; transform:scale(1.18); box-shadow:0 0 14px currentColor;}
+  #sizeWrap{display:flex; align-items:center; gap:8px;}
+  #sizeWrap label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim);}
+  input[type=range]{
+    -webkit-appearance:none; width:88px; height:3px; border-radius:2px;
+    background:rgba(255,255,255,0.15); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background:var(--cyan); cursor:pointer; box-shadow:0 0 8px var(--cyan);
+  }
+  .dockBtn{
+    display:flex; align-items:center; gap:6px;
+    background:rgba(255,255,255,0.04); border:1px solid var(--panel-border);
+    color:var(--text); font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500;
+    padding:9px 14px; border-radius:11px; cursor:pointer; transition:all .2s ease;
+  }
+  .dockBtn:hover{background:rgba(255,255,255,0.09); border-color:rgba(255,255,255,0.2);}
+  .dockBtn.warn:hover{border-color:var(--magenta); color:var(--magenta);}
+  .dockBtn.go:hover{border-color:var(--mint); color:var(--mint);}
+
+  /* ---------- start overlay ---------- */
+  #startOverlay{
+    position:fixed; inset:0; z-index:100;
+    display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at 50% 30%, #0d1024 0%, #05060b 65%);
+    transition:opacity .6s ease, visibility .6s ease;
+  }
+  #startOverlay.hidden{opacity:0; visibility:hidden; pointer-events:none;}
+  #startCard{
+    text-align:center; max-width:460px; padding:0 24px;
+  }
+  #startCard .eyebrow{
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:3px;
+    color:var(--cyan); text-transform:uppercase; margin-bottom:18px;
+  }
+  #startCard h1{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:40px;
+    line-height:1.1; margin-bottom:14px;
+    background:linear-gradient(120deg, #fff 20%, var(--cyan) 55%, var(--violet) 90%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  #startCard p{color:var(--text-dim); font-size:14.5px; line-height:1.65; margin-bottom:30px;}
+  #enableBtn{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px;
+    background:linear-gradient(120deg, var(--cyan), var(--violet));
+    color:#04050a; border:none; padding:15px 34px; border-radius:100px;
+    cursor:pointer; box-shadow:0 0 30px rgba(34,211,238,0.3);
+    transition:transform .2s ease, box-shadow .2s ease;
+  }
+  #enableBtn:hover{transform:translateY(-2px); box-shadow:0 6px 34px rgba(167,139,250,0.4);}
+  #enableBtn:active{transform:translateY(0);}
+  #startNote{
+    margin-top:22px; font-family:'JetBrains Mono',monospace; font-size:10.5px;
+    color:#565a70; line-height:1.7;
+  }
+  #startError{
+    margin-top:18px; font-size:12.5px; color:var(--magenta); display:none;
+    font-family:'JetBrains Mono',monospace; line-height:1.6;
+  }
+  .pulse-ring{
+    width:64px; height:64px; margin:0 auto 26px; border-radius:50%;
+    border:1.5px solid var(--cyan); position:relative;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pulse-ring::before, .pulse-ring::after{
+    content:''; position:absolute; inset:0; border-radius:50%;
+    border:1px solid var(--cyan); opacity:0.6;
+    animation:pulse 2.2s ease-out infinite;
+  }
+  .pulse-ring::after{animation-delay:1.1s;}
+  .pulse-ring span{font-size:22px;}
+  @keyframes pulse{
+    0%{transform:scale(1); opacity:0.6;}
+    100%{transform:scale(2.1); opacity:0;}
+  }
+
+  /* ---------- guide modal ---------- */
+  #guideModal{
+    position:fixed; inset:0; z-index:90; display:flex; align-items:center; justify-content:center;
+    background:rgba(2,3,8,0.7); backdrop-filter:blur(6px);
+    opacity:0; visibility:hidden; transition:all .25s ease;
+  }
+  #guideModal.show{opacity:1; visibility:visible;}
+  #guideCard{
+    background:#0b0d18; border:1px solid var(--panel-border); border-radius:18px;
+    padding:30px 32px; max-width:420px; width:90%;
+    box-shadow:0 20px 60px rgba(0,0,0,0.5);
+  }
+  #guideCard h2{
+    font-family:'Space Grotesk',sans-serif; font-size:18px; margin-bottom:18px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  #guideCard h2 button{
+    background:none; border:none; color:var(--text-dim); font-size:18px; cursor:pointer;
+  }
+  .guideRow{
+    display:flex; align-items:center; gap:14px; padding:11px 0;
+    border-bottom:1px solid rgba(255,255,255,0.05);
+  }
+  .guideRow:last-child{border-bottom:none;}
+  .guideRow .ic{font-size:24px; width:34px; text-align:center;}
+  .guideRow .desc b{display:block; font-size:13.5px; font-weight:600;}
+  .guideRow .desc span{font-size:11.5px; color:var(--text-dim);}
+
+  @media (max-width:640px){
+    #startCard h1{font-size:30px;}
+    #dock{gap:10px; padding:10px 12px; max-width:94vw; overflow-x:auto;}
+    #brandmark{display:none;}
+    #sizeWrap{display:none;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .pulse-ring::before,.pulse-ring::after{animation:none; display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="video" autoplay playsinline muted style="display:none;"></video>
+  <canvas id="feedCanvas"></canvas>
+  <canvas id="inkCanvas"></canvas>
+  <canvas id="hudCanvas"></canvas>
+</div>
+<div id="vignette"></div>
+<div id="grain"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="statusDot"></div>
+  <div id="gestureIcon">✋</div>
+  <div>
+    <div id="gestureLabel">Waiting for camera</div>
+    <div id="gestureSub">— idle —</div>
+  </div>
+  <button id="helpBtn" title="Gesture guide">?</button>
+</div>
+
+<div id="brandmark">
+  <div class="name">AERIAL</div>
+  <div class="tag">GESTURE BOARD · v1</div>
+</div>
+
+<!-- Dock -->
+<div id="dock">
+  <div id="swatches"></div>
+  <div class="divider"></div>
+  <div id="sizeWrap">
+    <label>SIZE</label>
+    <input type="range" id="sizeSlider" min="2" max="26" value="7">
+  </div>
+  <div class="divider"></div>
+  <button class="dockBtn warn" id="clearBtn">Clear</button>
+  <button class="dockBtn go" id="saveBtn">Save PNG</button>
+</div>
+
+<!-- Start overlay -->
+<div id="startOverlay">
+  <div id="startCard">
+    <div class="pulse-ring"><span>✋</span></div>
+    <div class="eyebrow">Camera-driven canvas</div>
+    <h1>Draw with your hand,<br>not your mouse.</h1>
+    <p>Aerial tracks your hand through your webcam and turns finger gestures into brush strokes.<br> No mouse, no stylus — just air.</p>
+    <button id="enableBtn">Enable Camera →</button>
+    <div id="startError"></div>
+  </div>
+</div>
+
+<!-- Guide modal -->
+<div id="guideModal">
+  <div id="guideCard">
+    <h2>Gesture guide <button id="closeGuide">✕</button></h2>
+    <div class="guideRow"><div class="ic">☝️</div><div class="desc"><b>Draw</b><span>Point with your index finger to paint. Pinch thumb + index to change stroke width on the fly.</span></div></div>
+    <div class="guideRow"><div class="ic">✌️</div><div class="desc"><b>Move</b><span>Index + middle up lifts the pen — reposition without drawing.</span></div></div>
+    <div class="guideRow"><div class="ic">🖐️</div><div class="desc"><b>Erase</b><span>Open palm, all five fingers up, wipes ink near your hand.</span></div></div>
+    <div class="guideRow"><div class="ic">✊</div><div class="desc"><b>Clear all</b><span>Make a fist and hold for about a second to wipe the board.</span></div></div>
+    <div class="guideRow"><div class="ic">🤙</div><div class="desc"><b>Cycle color</b><span>Thumb + pinky extended switches to the next brush color.</span></div></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- palette ----------
+  const PALETTE = [
+    {name:'Cyan',    hex:'#22d3ee'},
+    {name:'Violet',  hex:'#a78bfa'},
+    {name:'Magenta', hex:'#f472b6'},
+    {name:'Amber',   hex:'#fbbf24'},
+    {name:'Mint',    hex:'#34d399'},
+  ];
+  let colorIndex = 0;
+  let manualSize = 7;
+
+  // ---------- DOM ----------
+  const video = document.getElementById('video');
+  const feedCanvas = document.getElementById('feedCanvas');
+  const inkCanvas = document.getElementById('inkCanvas');
+  const hudCanvas = document.getElementById('hudCanvas');
+  const feedCtx = feedCanvas.getContext('2d');
+  const inkCtx = inkCanvas.getContext('2d');
+  const hudCtx = hudCanvas.getContext('2d');
+
+  const statusDot = document.getElementById('statusDot');
+  const gestureIcon = document.getElementById('gestureIcon');
+  const gestureLabel = document.getElementById('gestureLabel');
+  const gestureSub = document.getElementById('gestureSub');
+
+  const startOverlay = document.getElementById('startOverlay');
+  const enableBtn = document.getElementById('enableBtn');
+  const startError = document.getElementById('startError');
+
+  const swatchesEl = document.getElementById('swatches');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const clearBtn = document.getElementById('clearBtn');
+  const saveBtn = document.getElementById('saveBtn');
+
+  const helpBtn = document.getElementById('helpBtn');
+  const guideModal = document.getElementById('guideModal');
+  const closeGuide = document.getElementById('closeGuide');
+
+  // build swatches
+  PALETTE.forEach((c,i)=>{
+    const s = document.createElement('div');
+    s.className = 'swatch' + (i===0 ? ' active' : '');
+    s.style.background = c.hex;
+    s.style.color = c.hex;
+    s.title = c.name;
+    s.addEventListener('click', ()=> setColor(i));
+    swatchesEl.appendChild(s);
+  });
+  function setColor(i){
+    colorIndex = i;
+    [...swatchesEl.children].forEach((el,idx)=> el.classList.toggle('active', idx===i));
+  }
+  sizeSlider.addEventListener('input', e => manualSize = parseInt(e.target.value,10));
+  clearBtn.addEventListener('click', clearInk);
+  saveBtn.addEventListener('click', savePNG);
+  helpBtn.addEventListener('click', ()=> guideModal.classList.add('show'));
+  closeGuide.addEventListener('click', ()=> guideModal.classList.remove('show'));
+  guideModal.addEventListener('click', e=>{ if(e.target===guideModal) guideModal.classList.remove('show'); });
+
+  window.addEventListener('keydown', e=>{
+    if(e.key.toLowerCase()==='c') clearInk();
+    if(e.key.toLowerCase()==='s') savePNG();
+    if(['1','2','3','4','5'].includes(e.key)) setColor(parseInt(e.key,10)-1);
+  });
+
+  function clearInk(){ inkCtx.clearRect(0,0,inkCanvas.width, inkCanvas.height); }
+  function savePNG(){
+    const link = document.createElement('a');
+    link.download = 'aerial-drawing.png';
+    link.href = inkCanvas.toDataURL('image/png');
+    link.click();
+  }
+
+  // ---------- sizing ----------
+  function resizeCanvases(){
+    const w = window.innerWidth, h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    [feedCanvas, hudCanvas].forEach(c=>{
+      c.width = w*dpr; c.height = h*dpr;
+    });
+    // preserve ink drawing across resizes
+    const prev = document.createElement('canvas');
+    prev.width = inkCanvas.width; prev.height = inkCanvas.height;
+    prev.getContext('2d').drawImage(inkCanvas,0,0);
+    inkCanvas.width = w*dpr; inkCanvas.height = h*dpr;
+    if(prev.width>0 && prev.height>0){
+      inkCtx.drawImage(prev,0,0,prev.width,prev.height,0,0,inkCanvas.width,inkCanvas.height);
+    }
+    feedCtx.setTransform(dpr,0,0,dpr,0,0);
+    hudCtx.setTransform(dpr,0,0,dpr,0,0);
+    inkCtx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resizeCanvases);
+  resizeCanvases();
+
+  // ---------- hand landmark helpers ----------
+  const HAND_CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+
+  function fingerUp(lm, tip, pip){ return (lm[tip].y - lm[pip].y) < -0.02; }
+  function thumbOut(lm){
+    const tip = lm[4], ip = lm[3], pinkyMcp = lm[17];
+    const dTip = Math.hypot(tip.x-pinkyMcp.x, tip.y-pinkyMcp.y);
+    const dIp  = Math.hypot(ip.x-pinkyMcp.x, ip.y-pinkyMcp.y);
+    return dTip > dIp + 0.02;
+  }
+
+  function classify(lm){
+    const index = fingerUp(lm,8,6);
+    const middle = fingerUp(lm,12,10);
+    const ring = fingerUp(lm,16,14);
+    const pinky = fingerUp(lm,20,18);
+    const thumb = thumbOut(lm);
+
+    if(!index && !middle && !ring && !pinky) return 'fist';
+    if(index && middle && ring && pinky) return 'erase';
+    if(index && !middle && !ring && !pinky) return 'draw';
+    if(index && middle && !ring && !pinky) return 'move';
+    if(thumb && pinky && !index && !middle && !ring) return 'color';
+    return 'move';
+  }
+
+  const GESTURE_META = {
+    draw:  {icon:'☝️', label:'Drawing',      sub:'index up · pinch to resize'},
+    move:  {icon:'✌️', label:'Pen up',        sub:'repositioning'},
+    erase: {icon:'🖐️', label:'Erasing',       sub:'open palm'},
+    fist:  {icon:'✊', label:'Hold to clear', sub:'closing fist'},
+    color: {icon:'🤙', label:'Color cycled',  sub:'thumb + pinky'},
+    idle:  {icon:'✋', label:'No hand detected', sub:'show your hand to the camera'}
+  };
+
+  function setHud(state){
+    const m = GESTURE_META[state] || GESTURE_META.idle;
+    gestureIcon.textContent = m.icon;
+    gestureLabel.textContent = m.label;
+    gestureSub.textContent = m.sub;
+  }
+
+  // ---------- state ----------
+  let lastPoint = null;
+  let fistStart = null;
+  let fistFired = false;
+  let colorLockedThisGesture = false;
+  let lastGesture = 'idle';
+
+  function px(lm, i, w, h){
+    // mirror x so it matches the mirrored video feed
+    return { x: (1 - lm[i].x) * w, y: lm[i].y * h };
+  }
+
+  function drawSkeleton(lm, w, h, accent){
+    hudCtx.save();
+    hudCtx.lineJoin = 'round'; hudCtx.lineCap = 'round';
+    hudCtx.shadowBlur = 12;
+    hudCtx.shadowColor = accent;
+    hudCtx.strokeStyle = accent;
+    hudCtx.globalAlpha = 0.55;
+    hudCtx.lineWidth = 1.6;
+    HAND_CONNECTIONS.forEach(([a,b])=>{
+      const pa = px(lm,a,w,h), pb = px(lm,b,w,h);
+      hudCtx.beginPath();
+      hudCtx.moveTo(pa.x, pa.y);
+      hudCtx.lineTo(pb.x, pb.y);
+      hudCtx.stroke();
+    });
+    hudCtx.globalAlpha = 0.9;
+    for(let i=0;i<21;i++){
+      const p = px(lm,i,w,h);
+      const r = (i===8) ? 4.5 : 2.2;
+      hudCtx.beginPath();
+      hudCtx.arc(p.x,p.y,r,0,Math.PI*2);
+      hudCtx.fillStyle = accent;
+      hudCtx.fill();
+    }
+    hudCtx.restore();
+  }
+
+  function drawCursorGlow(p, accent, radius){
+    hudCtx.save();
+    const grad = hudCtx.createRadialGradient(p.x,p.y,0,p.x,p.y,radius);
+    grad.addColorStop(0, accent);
+    grad.addColorStop(1, 'transparent');
+    hudCtx.globalAlpha = 0.5;
+    hudCtx.fillStyle = grad;
+    hudCtx.beginPath();
+    hudCtx.arc(p.x,p.y,radius,0,Math.PI*2);
+    hudCtx.fill();
+    hudCtx.restore();
+  }
+
+  function drawFistProgress(p, progress, accent){
+    hudCtx.save();
+    hudCtx.lineWidth = 4;
+    hudCtx.strokeStyle = 'rgba(255,255,255,0.15)';
+    hudCtx.beginPath(); hudCtx.arc(p.x,p.y,30,0,Math.PI*2); hudCtx.stroke();
+    hudCtx.strokeStyle = accent;
+    hudCtx.shadowColor = accent; hudCtx.shadowBlur = 14;
+    hudCtx.beginPath();
+    hudCtx.arc(p.x,p.y,30,-Math.PI/2, -Math.PI/2 + progress*Math.PI*2);
+    hudCtx.stroke();
+    hudCtx.restore();
+  }
+
+  function strokeTo(p, accent, size){
+    inkCtx.save();
+    inkCtx.lineJoin = 'round'; inkCtx.lineCap = 'round';
+    inkCtx.shadowBlur = size*1.4;
+    inkCtx.shadowColor = accent;
+    inkCtx.strokeStyle = accent;
+    inkCtx.globalAlpha = 0.9;
+    inkCtx.lineWidth = size;
+    inkCtx.beginPath();
+    if(lastPoint){
+      const midX = (lastPoint.x+p.x)/2, midY=(lastPoint.y+p.y)/2;
+      inkCtx.moveTo(lastPoint.x,lastPoint.y);
+      inkCtx.quadraticCurveTo(lastPoint.x,lastPoint.y, midX, midY);
+      inkCtx.lineTo(p.x,p.y);
+    } else {
+      inkCtx.moveTo(p.x,p.y); inkCtx.lineTo(p.x,p.y);
+    }
+    inkCtx.stroke();
+    inkCtx.restore();
+    lastPoint = p;
+  }
+
+  function eraseAt(p, radius){
+    inkCtx.save();
+    inkCtx.globalCompositeOperation = 'destination-out';
+    const grad = inkCtx.createRadialGradient(p.x,p.y,0,p.x,p.y,radius);
+    grad.addColorStop(0,'rgba(0,0,0,1)');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    inkCtx.fillStyle = grad;
+    inkCtx.beginPath();
+    inkCtx.arc(p.x,p.y,radius,0,Math.PI*2);
+    inkCtx.fill();
+    inkCtx.restore();
+  }
+
+  // ---------- results handler ----------
+  function onResults(results){
+    const w = window.innerWidth, h = window.innerHeight;
+
+    // draw mirrored camera feed
+    feedCtx.save();
+    feedCtx.clearRect(0,0,w,h);
+    feedCtx.translate(w,0); feedCtx.scale(-1,1);
+    if(results.image){
+      // cover-fit
+      const iw = results.image.width, ih = results.image.height;
+      const scale = Math.max(w/iw, h/ih);
+      const dw = iw*scale, dh = ih*scale;
+      feedCtx.drawImage(results.image, (w-dw)/2, (h-dh)/2, dw, dh);
+    }
+    feedCtx.restore();
+
+    hudCtx.clearRect(0,0,w,h);
+
+    const hands = results.multiHandLandmarks;
+    if(!hands || hands.length===0){
+      statusDot.classList.remove('live');
+      setHud('idle');
+      lastPoint = null; fistStart = null; fistFired=false;
+      lastGesture = 'idle';
+      return;
+    }
+    statusDot.classList.add('live');
+
+    const lm = hands[0];
+    const gesture = classify(lm);
+    const accentHex = PALETTE[colorIndex].hex;
+
+    drawSkeleton(lm, w, h, accentHex);
+    setHud(gesture);
+
+    if(gesture !== 'color') colorLockedThisGesture = false;
+    if(gesture !== 'fist'){ fistStart = null; fistFired = false; }
+
+    if(gesture === 'draw'){
+      const tip = px(lm,8,w,h);
+      const thumbTip = px(lm,4,w,h);
+      const pinchDist = Math.hypot(tip.x-thumbTip.x, tip.y-thumbTip.y);
+      const dynamicSize = Math.min(30, Math.max(2, pinchDist*0.18)) * 0.5 + manualSize*0.5;
+      strokeTo(tip, accentHex, dynamicSize);
+      drawCursorGlow(tip, accentHex, dynamicSize*2.2);
+    } else if(gesture === 'erase'){
+      const pts = [0,5,9,13,17].map(i=>px(lm,i,w,h));
+      const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      eraseAt({x:cx,y:cy}, 46);
+      drawCursorGlow({x:cx,y:cy}, '#ffffff', 50);
+      lastPoint = null;
+    } else if(gesture === 'move'){
+      const tip = px(lm,8,w,h);
+      drawCursorGlow(tip, accentHex, 16);
+      lastPoint = null;
+    } else if(gesture === 'fist'){
+      const pts = [0,5,9,13,17].map(i=>px(lm,i,w,h));
+      const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      if(!fistStart) fistStart = performance.now();
+      const progress = Math.min(1, (performance.now()-fistStart)/850);
+      drawFistProgress({x:cx,y:cy}, progress, '#f472b6');
+      if(progress>=1 && !fistFired){
+        clearInk();
+        fistFired = true;
+      }
+      lastPoint = null;
+    } else if(gesture === 'color'){
+      const tip = px(lm,4,w,h);
+      drawCursorGlow(tip, accentHex, 22);
+      if(!colorLockedThisGesture){
+        setColor((colorIndex+1) % PALETTE.length);
+        colorLockedThisGesture = true;
+      }
+      lastPoint = null;
+    }
+    lastGesture = gesture;
+  }
+
+  // ---------- boot ----------
+  let handsSolution, cameraUtil;
+
+  async function startExperience(){
+    startError.style.display = 'none';
+    enableBtn.textContent = 'Starting camera…';
+    enableBtn.disabled = true;
+    try{
+      if(!window.isSecureContext && location.hostname !== 'localhost'){
+        throw new Error('INSECURE_CONTEXT');
+      }
+      handsSolution = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      handsSolution.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.6
+      });
+      handsSolution.onResults(onResults);
+
+      cameraUtil = new Camera(video, {
+        onFrame: async () => { await handsSolution.send({image: video}); },
+        width: 1280,
+        height: 720
+      });
+      await cameraUtil.start();
+
+      startOverlay.classList.add('hidden');
+    }catch(err){
+      console.error(err);
+      enableBtn.textContent = 'Enable Camera →';
+      enableBtn.disabled = false;
+      startError.style.display = 'block';
+      if(err && err.message === 'INSECURE_CONTEXT'){
+        startError.textContent = 'Camera access needs HTTPS or localhost. Serve this file with a local server (e.g. "python3 -m http.server") or deploy it, then reopen it that way.';
+      } else if(err && err.name === 'NotAllowedError'){
+        startError.textContent = 'Camera permission was denied. Allow camera access for this page and try again.';
+      } else if(err && err.name === 'NotFoundError'){
+        startError.textContent = 'No camera was found on this device.';
+      } else {
+        startError.textContent = 'Could not start the camera. Check permissions and try again.';
+      }
+    }
+  }
+
+  enableBtn.addEventListener('click', startExperience);
+})();
+</script>
+</body>
+</html>
