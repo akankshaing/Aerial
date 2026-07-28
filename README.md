@@ -4,6 +4,8 @@ Aerial is a browser-based virtual drawing board that lets you draw in the air us
 
 ---
 
+*Check it out* - https://aerial-gamma.vercel.app/
+
 ## ✨ Features
 
 - 🎨 Draw using your index finger
